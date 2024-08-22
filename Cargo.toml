@@ -1,0 +1,9 @@
+[package]
+name = "sirius-quickstart"
+version = "0.1.0"
+edition = "2021"
+repository = "https://github.com/snarkify/sirius-quickstart"
+license = "MIT"
+
+[dependencies]
+sirius = { git = "https://github.com/snarkify/sirius/", tag = "v0.1.1", version = "0.1.1" }
