@@ -1,10 +1,30 @@
-# Sirius Quickstart
+# Sirius Fibonacci Example
 
-Welcome to the `sirius-quickstart` repository, a minimal example to get you started with the [**Sirius**](https://github.com/snarkify/sirius/) framework for Incrementally Verifiable Computation (IVC).
+Welcome to the `sirius-fibonacci-example` repository, an example designed to demonstrate the application of the [**Sirius**](https://github.com/snarkify/sirius/) framework for Incrementally Verifiable Computation (IVC).
 
 ## Introduction
 
-This repository provides a simple, runnable example to demonstrate the basic usage of the Sirius framework. The example implements a trivial `StepCircuit` that performs identity mapping (i.e., it outputs the input unchanged) over multiple folding steps. This example is intended to help developers understand the core concepts and API of Sirius.
+This repository provides a practical example that implements a custom StepCircuit to calculate Fibonacci numbers over multiple folding steps. The example is designed to help developers understand the configuration and synthesis of custom circuits in the Sirius framework, focusing on iterative arithmetic operations.
+
+## Understanding the Fibonacci StepCircuit
+
+### What Does the Fibonacci StepCircuit Do?
+
+The `FibonacciCircuit` in this example is designed to compute elements of the Fibonacci sequence across multiple folding steps. Here's a detailed breakdown of its operation:
+
+- Initialization: The circuit begins with two initial values, typically 0 and 1, which represent the first two Fibonacci numbers.
+
+- Iteration: The circuit then iteratively computes the next Fibonacci number by summing the two preceding numbers. This process is repeated for a specified number of steps within the circuit.
+
+- Output: The circuit outputs a pair of Fibonacci numbers that result from the specified number of iterations. For example, if the circuit is configured to compute the sequence for 10 steps, the output will be the 9th and 10th Fibonacci numbers.
+
+#### Key Concepts
+
+- FibonacciIter Structure: A custom iterator structure that generates Fibonacci numbers by repeatedly summing the previous two numbers.
+
+- Custom Gates: The circuit utilizes a custom gate that enforces the relationship $a_{n+2} = a_{n+1} + a_n$ within the folding steps. This gate ensures that each step of the computation correctly adheres to the Fibonacci sequence.
+
+- Selectors and Advice Columns: The configuration includes advice columns to store the Fibonacci numbers and a selector to control the execution of the addition gate.
 
 ## Prerequisites
 
@@ -28,8 +48,8 @@ rustup update
 Clone the sirius-quickstart repository to your local machine:
 
 ```bash
-git clone https://github.com/your-username/sirius-quickstart.git;
-cd sirius-quickstart
+git clone https://github.com/your-username/sirius-fibonacci-example.git
+cd sirius-fibonacci-example
 ```
 
 ## Project Structure
@@ -85,11 +105,11 @@ This example demonstrates the following key concepts of the Sirius framework:
 For more detailed explanations, please refer to the main [Sirius documentation](https://docs.snarkify.io/sirius-folding/quickstart).
 
 ## Next Steps
-After understanding this basic example, you can explore more complex examples and customize your circuits:
+After understanding this Fibonacci example, you can explore more complex circuits and further customize your IVC setup:
 
-- Modify the StepCircuit implementation to perform non-trivial operations.
-- Experiment with different folding step counts and configurations.
-- Explore the Sirius main repository for advanced features like custom gates and high-degree optimizations.
+- Extend the Fibonacci Circuit: Modify the circuit to compute more elements or implement a different arithmetic sequence.
+- Experiment with Parameters: Adjust the number of folding steps or change the initial conditions of the sequence.
+- Explore Advanced Features: Delve into the Sirius main repository for more complex features such as custom gates, multi-circuit setups, and performance optimizations.
 
 # Getting Involved
 

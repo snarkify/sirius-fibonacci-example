@@ -1,7 +1,11 @@
-use std::path::Path;
+use std::{ops::Add, path::Path};
 
 use sirius::{
     ff::Field,
+    halo2_proofs::{
+        plonk::{Advice, Column, Selector},
+        poly::Rotation,
+    },
     ivc::{
         step_circuit::{trivial, AssignedCell, ConstraintSystem, Layouter},
         SynthesisError,
@@ -18,10 +22,7 @@ const FOLD_STEP_COUNT: usize = 5;
 // === PRIMARY ===
 
 /// Arity : Input/output size per fold-step for primary step-circuit
-const A1: usize = 1;
-
-/// Input to be passed on the zero step to the primary circuit
-const PRIMARY_Z_0: [C1Scalar; A1] = [C1Scalar::ZERO];
+const A1: usize = 2;
 
 /// Key size for Primary Circuit
 ///
@@ -42,7 +43,7 @@ const PRIMARY_CIRCUIT_TABLE_SIZE: usize = 17;
 const A2: usize = 1;
 
 /// Input to be passed on the zero step to the secondary circuit
-const SECONDARY_Z_0: [C2Scalar; A1] = [C2Scalar::ZERO];
+const SECONDARY_Z_0: [C2Scalar; A2] = [C2Scalar::ZERO];
 
 /// Table size for Primary Circuit
 ///
@@ -56,27 +57,77 @@ const SECONDARY_CIRCUIT_TABLE_SIZE: usize = 17;
 /// insufficient, then increase this constant
 const SECONDARY_COMMITMENT_KEY_SIZE: usize = 20;
 
-/// This structure is a template for configuring your circuit
+/// Iterator for generating Fibonacci sequence values.
 ///
-/// It should store information about your PLONKish structure
+/// Given two initial values, it produces subsequent Fibonacci numbers by
+/// summing the two preceding numbers.
+///
+/// # Example
+/// ```
+/// const EXPECTED: [u64; 20] = [
+///     0, 1, 1, 2, 3, 5, 8, 13, 21, 34,
+///     55, 89, 144, 233, 377, 610, 987,
+///     1597, 2584, 4181,
+/// ];
+/// let actual = FibonacciIter(0, 1).take(20).collect::<Vec<_>>();
+/// assert_eq!(&actual, &EXPECTED);
+/// ```
+struct FibonacciIter<F>(F, F);
+
+impl<F: Add<Output = F> + Copy> Iterator for FibonacciIter<F> {
+    type Item = F;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let cur = self.0;
+
+        self.0 = self.1;
+        self.1 = cur + self.1;
+
+        Some(cur)
+    }
+}
+
+/// Configuration for the Fibonacci circuit, which includes a selector and an advice column to hold
+/// intermediate values of the Fibonacci sequence.
 #[derive(Debug, Clone)]
-struct MyConfig {}
+struct FibonacciConfig {
+    /// Selector used to activate the gate that enforces the Fibonacci relation.
+    s: Selector,
+    /// Advice column to store the current and previous Fibonacci numbers.
+    e: Column<Advice>,
+}
 
-/// This page is a template for your circuit
-/// Within this code - it returns the input unchanged
-struct MyStepCircuit {}
+/// Circuit that generates Fibonacci numbers over multiple folding steps.
+///
+/// The circuit is configured to prove a specified number of Fibonacci sequence elements in each
+/// step, defined by `ELEMENTS_NUM`.
+struct FibonacciCircuit<const ELEMENTS_NUM: usize> {}
 
-impl<const A: usize, F: PrimeField> StepCircuit<A, F> for MyStepCircuit {
+impl<F: PrimeField, const N: usize> StepCircuit<A1, F> for FibonacciCircuit<N> {
     /// This is a configuration object that stores things like columns.
-    type Config = MyConfig;
+    type Config = FibonacciConfig;
 
     /// Configure the step circuit. This method initializes necessary
-    /// fixed columns and advice columns, but does not create any instance
-    /// columns.
-    ///
-    // TODO #329
-    fn configure(_cs: &mut ConstraintSystem<F>) -> Self::Config {
-        MyConfig {}
+    /// fixed columns and advice columns
+    fn configure(cs: &mut ConstraintSystem<F>) -> Self::Config {
+        let config = Self::Config {
+            s: cs.selector(),
+            e: cs.advice_column(),
+        };
+
+        cs.enable_equality(config.e);
+
+        cs.create_gate("fibo-block", |meta| {
+            let s = meta.query_selector(config.s);
+
+            let e1 = meta.query_advice(config.e, Rotation(-2));
+            let e2 = meta.query_advice(config.e, Rotation(-1));
+            let e3 = meta.query_advice(config.e, Rotation(0));
+
+            vec![s * (e1 + e2 - e3)]
+        });
+
+        config
     }
 
     /// Sythesize the circuit for a computation step and return variable
@@ -86,17 +137,55 @@ impl<const A: usize, F: PrimeField> StepCircuit<A, F> for MyStepCircuit {
     /// Return `z_out` result
     fn synthesize_step(
         &self,
-        _config: Self::Config,
-        _layouter: &mut impl Layouter<F>,
-        z_i: &[AssignedCell<F, F>; A],
-    ) -> Result<[AssignedCell<F, F>; A], SynthesisError> {
-        // For this example we do not modify anything, we return the input unchanged
-        Ok(z_i.clone())
+        config: Self::Config,
+        layouter: &mut impl Layouter<F>,
+        z_i: &[AssignedCell<F, F>; 2],
+    ) -> Result<[AssignedCell<F, F>; 2], SynthesisError> {
+        let z_out = layouter.assign_region(
+            || "main",
+            |mut region| {
+                let [a, b] = z_i;
+
+                FibonacciIter(a.value().copied(), b.value().copied())
+                    .enumerate()
+                    .map(|(offset, value)| {
+                        let assigned = region.assign_advice(
+                            || "element of sequence",
+                            config.e,
+                            offset,
+                            || value,
+                        )?;
+
+                        // Enforce equality constraints on the first two elements.
+                        //
+                        // For all other - enable gate with check. Note that the gate starts work
+                        // at index 2, because the gate references the -2 cell internally
+                        match offset {
+                            0 => {
+                                region.constrain_equal(a.cell(), assigned.cell())?;
+                            }
+                            1 => {
+                                region.constrain_equal(b.cell(), assigned.cell())?;
+                            }
+                            _ => {
+                                config.s.enable(&mut region, offset)?;
+                            }
+                        }
+
+                        Ok(assigned)
+                    })
+                    .take(N + A1)
+                    .skip(N) // We only need the last two elements (A1 := 2)
+                    .collect::<Result<Vec<_>, _>>()
+            },
+        )?;
+
+        Ok(z_out.try_into().unwrap())
     }
 }
 
 fn main() {
-    let sc1 = MyStepCircuit {};
+    let sc1 = FibonacciCircuit::<10> {};
     let sc2 = trivial::Circuit::<A2, C2Scalar>::default();
 
     // This folder will store the commitment key so that we don't have to generate it every time.
@@ -138,7 +227,10 @@ fn main() {
         &sc2,
     );
 
-    let mut ivc = IVC::new(&pp, &sc1, PRIMARY_Z_0, &sc2, SECONDARY_Z_0, true)
+    // Input to be passed on the zero step to the primary circuit
+    let primary_z_0: [C1Scalar; A1] = [C1Scalar::ZERO, C1Scalar::ONE];
+
+    let mut ivc = IVC::new(&pp, &sc1, primary_z_0, &sc2, SECONDARY_Z_0, true)
         .expect("failed to create `IVC`");
     println!("ivc created");
 
